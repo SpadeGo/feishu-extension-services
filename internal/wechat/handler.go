@@ -20,12 +20,29 @@ func NewHandler(cfg *Config) *Handler {
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
 	// 兼容旧路由（前端已上线，不能改）
-	mux.HandleFunc("/api/parse-wechat", h.parseWeChat)
-	mux.HandleFunc("/api/import-wechat", h.parseWeChat)
-	mux.HandleFunc("/api/download-media", h.downloadMedia)
+	mux.HandleFunc("/api/parse-wechat", h.cors(h.parseWeChat))
+	mux.HandleFunc("/api/import-wechat", h.cors(h.parseWeChat))
+	mux.HandleFunc("/api/download-media", h.cors(h.downloadMedia))
 
-	// 新路由（后续新服务用）
+	// 新路由
 	mux.HandleFunc("/api/wechat/health", h.health)
+}
+
+// cors 包装器，给每个请求加上 CORS 头
+func (h *Handler) cors(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "*")
+		w.Header().Set("Access-Control-Max-Age", "86400")
+
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(204)
+			return
+		}
+
+		next(w, r)
+	}
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
@@ -116,7 +133,7 @@ func (h *Handler) downloadMedia(w http.ResponseWriter, r *http.Request) {
 	client := &http.Client{Timeout: time.Duration(h.cfg.FetchTimeout) * time.Second}
 	proxyReq, _ := http.NewRequest("GET", req.URL, nil)
 	proxyReq.Header.Set("Referer", "https://mp.weixin.qq.com/")
-	proxyReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36")
+	proxyReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
 	resp, err := client.Do(proxyReq)
 	if err != nil {
 		writeJSON(w, 502, map[string]string{"message": "download failed: " + err.Error()})
