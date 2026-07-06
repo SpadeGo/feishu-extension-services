@@ -19,9 +19,13 @@ func NewHandler(cfg *Config) *Handler {
 }
 
 func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
+	// 兼容旧路由（前端已上线，不能改）
+	mux.HandleFunc("/api/parse-wechat", h.parseWeChat)
+	mux.HandleFunc("/api/import-wechat", h.parseWeChat)
+	mux.HandleFunc("/api/download-media", h.downloadMedia)
+
+	// 新路由（后续新服务用）
 	mux.HandleFunc("/api/wechat/health", h.health)
-	mux.HandleFunc("/api/wechat/parse", h.parseWeChat)
-	mux.HandleFunc("/api/wechat/download-media", h.downloadMedia)
 }
 
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
