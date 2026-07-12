@@ -1,27 +1,29 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
 	"os"
-	"os/signal"
-	"syscall"
 
+	"github.com/SpadeGo/feishu-extension-services/internal/core"
 	"github.com/SpadeGo/feishu-extension-services/internal/wechat"
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	mux := http.NewServeMux()
+	srv := core.New()
 
-	// 公众号解析
-	wxHandler := wechat.NewHandler(wechat.LoadConfig())
-	wxHandler.RegisterRoutes(mux)
+	// 全局 CORS 中间件
+	srv.Use(corsMiddleware())
 
-	// 注册全局路由
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Write([]byte(`{"ok":true,"service":"feishu-extension-services"}`))
+	// 注册各业务插件
+	srv.Register(wechat.NewPlugin(wechat.LoadConfig()))
+	// srv.Register(douyin.NewPlugin(...))  // 未来插件
+
+	// 全局健康检查
+	srv.GET("/api/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"ok":      true,
+			"service": "feishu-extension-services",
+		})
 	})
 
 	port := os.Getenv("PORT")
@@ -29,33 +31,19 @@ func main() {
 		port = "8787"
 	}
 
-	server := &http.Server{
-		Addr:    fmt.Sprintf(":%s", port),
-		Handler: corsMiddleware(mux),
-	}
-
-	go func() {
-		log.Printf("[main] 飞书扩展统一后端服务启动，监听 :%s", port)
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("[main] 服务启动失败: %v", err)
-		}
-	}()
-
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Println("[main] 正在关闭服务...")
+	srv.Run(":" + port)
 }
 
-func corsMiddleware(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "*")
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(204)
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Header("Access-Control-Allow-Origin", "*")
+		c.Header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "*")
+		c.Header("Access-Control-Max-Age", "86400")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
 			return
 		}
-		next.ServeHTTP(w, r)
-	})
+		c.Next()
+	}
 }

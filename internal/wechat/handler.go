@@ -1,13 +1,17 @@
 package wechat
 
 import (
-	"encoding/json"
-	"fmt"
-	"io"
 	"log"
-	"net/http"
 	"strings"
-	"time"
+
+	"github.com/SpadeGo/feishu-extension-services/internal/core"
+	"github.com/gin-gonic/gin"
+)
+
+// Plugin-specific error codes.
+const (
+	CodeBadRequest  = 10001 // 请求参数错误
+	CodeParseFailed = 10002 // 公众号文章解析失败
 )
 
 type Handler struct {
@@ -18,68 +22,30 @@ func NewHandler(cfg *Config) *Handler {
 	return &Handler{cfg: cfg}
 }
 
-func (h *Handler) RegisterRoutes(mux *http.ServeMux) {
-	// 兼容旧路由（前端已上线，不能改）
-	mux.HandleFunc("/api/parse-wechat", h.cors(h.parseWeChat))
-	mux.HandleFunc("/api/import-wechat", h.cors(h.parseWeChat))
-	mux.HandleFunc("/api/download-media", h.cors(h.downloadMedia))
-
-	// 新路由
-	mux.HandleFunc("/api/wechat/health", h.health)
-}
-
-// cors 包装器，给每个请求加上 CORS 头
-func (h *Handler) cors(next http.HandlerFunc) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "*")
-		w.Header().Set("Access-Control-Max-Age", "86400")
-
-		if r.Method == "OPTIONS" {
-			w.WriteHeader(204)
-			return
-		}
-
-		next(w, r)
-	}
-}
-
-func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "GET" {
-		writeJSON(w, 405, map[string]string{"message": "Method not allowed"})
-		return
-	}
-	writeJSON(w, 200, map[string]interface{}{
-		"ok": true, "timestamp": time.Now().UTC().Format(time.RFC3339),
-		"service": "wechat",
-	})
+func (h *Handler) RegisterRoutes(rg *gin.RouterGroup) {
+	rg.POST("/parse-wechat", h.parseWeChat)
 }
 
 type parseReq struct {
 	ArticleURL string `json:"articleUrl"`
 }
 
-func (h *Handler) parseWeChat(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		writeJSON(w, 405, map[string]string{"message": "Method not allowed"})
-		return
-	}
+func (h *Handler) parseWeChat(c *gin.Context) {
 	var req parseReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, 400, map[string]string{"message": "Invalid request body"})
+	if err := c.ShouldBindJSON(&req); err != nil {
+		core.Fail(c, CodeBadRequest, "Invalid request body")
 		return
 	}
 	req.ArticleURL = strings.TrimSpace(req.ArticleURL)
 	if req.ArticleURL == "" {
-		writeJSON(w, 400, map[string]string{"message": "articleUrl is required"})
+		core.Fail(c, CodeBadRequest, "articleUrl is required")
 		return
 	}
 
 	article, err := Parse(req.ArticleURL, h.cfg.FetchTimeout)
 	if err != nil {
 		log.Printf("[wechat] 解析失败: %v url=%s", err, req.ArticleURL)
-		writeJSON(w, 500, map[string]string{"message": err.Error()})
+		core.Fail(c, CodeParseFailed, err.Error())
 		return
 	}
 
@@ -94,71 +60,16 @@ func (h *Handler) parseWeChat(w http.ResponseWriter, r *http.Request) {
 		mediaURLs = mediaURLs[:h.cfg.MediaLimit]
 	}
 
-	writeJSON(w, 200, map[string]interface{}{
-		"data": map[string]interface{}{
-			"articleUrl": req.ArticleURL,
-			"title":      article.Title,
-			"text":       article.Text,
-			"textLength": len(article.Text),
-			"imageUrls":  article.ImageURLs,
-			"videoUrls":  article.VideoURLs,
-			"mediaUrls":  mediaURLs,
-			"imageCount": len(article.ImageURLs),
-			"videoCount": len(article.VideoURLs),
-			"mediaCount": len(mediaURLs),
-		},
+	core.Success(c, gin.H{
+		"articleUrl": req.ArticleURL,
+		"title":      article.Title,
+		"text":       article.Text,
+		"textLength": len(article.Text),
+		"imageUrls":  article.ImageURLs,
+		"videoUrls":  article.VideoURLs,
+		"mediaUrls":  mediaURLs,
+		"imageCount": len(article.ImageURLs),
+		"videoCount": len(article.VideoURLs),
+		"mediaCount": len(mediaURLs),
 	})
-}
-
-type downloadReq struct {
-	URL string `json:"url"`
-}
-
-func (h *Handler) downloadMedia(w http.ResponseWriter, r *http.Request) {
-	if r.Method != "POST" {
-		writeJSON(w, 405, map[string]string{"message": "Method not allowed"})
-		return
-	}
-	var req downloadReq
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, 400, map[string]string{"message": "Invalid request body"})
-		return
-	}
-	req.URL = strings.TrimSpace(req.URL)
-	if req.URL == "" || !strings.HasPrefix(req.URL, "http") {
-		writeJSON(w, 400, map[string]string{"message": "valid media url is required"})
-		return
-	}
-
-	client := &http.Client{Timeout: time.Duration(h.cfg.FetchTimeout) * time.Second}
-	proxyReq, _ := http.NewRequest("GET", req.URL, nil)
-	proxyReq.Header.Set("Referer", "https://mp.weixin.qq.com/")
-	proxyReq.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36")
-	resp, err := client.Do(proxyReq)
-	if err != nil {
-		writeJSON(w, 502, map[string]string{"message": "download failed: " + err.Error()})
-		return
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
-		writeJSON(w, 502, map[string]string{"message": fmt.Sprintf("download failed from source: %d", resp.StatusCode)})
-		return
-	}
-
-	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
-		w.Header().Set("Content-Disposition", cd)
-	}
-	w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
-	if w.Header().Get("Content-Type") == "" {
-		w.Header().Set("Content-Type", "application/octet-stream")
-	}
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 50<<20))
-	w.Write(body)
-}
-
-func writeJSON(w http.ResponseWriter, status int, data interface{}) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
 }
