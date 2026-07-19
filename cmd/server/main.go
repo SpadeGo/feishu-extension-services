@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/SpadeGo/feishu-extension-services/internal/core"
+	"github.com/SpadeGo/feishu-extension-services/internal/invoice"
 	"github.com/SpadeGo/feishu-extension-services/internal/wechat"
 	"github.com/gin-gonic/gin"
 )
@@ -16,6 +17,7 @@ func main() {
 
 	// 注册各业务插件
 	srv.Register(wechat.NewPlugin(wechat.LoadConfig()))
+	srv.Register(invoice.NewPlugin(invoice.DefaultConfig()))
 	// srv.Register(douyin.NewPlugin(...))  // 未来插件
 
 	// 全局健康检查
