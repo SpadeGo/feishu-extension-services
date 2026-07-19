@@ -32,47 +32,11 @@ func NewBaiduClient(cfg *Config) *BaiduClient {
 
 // VatInvoiceResponse 百度云增值税发票识别返回值
 type VatInvoiceResponse struct {
-	LogID          int64  `json:"log_id"`
-	WordsResultNum int    `json:"words_result_num"`
-	WordsResult    *WordsResult `json:"words_result"`
-	ErrorCode      int    `json:"error_code,omitempty"`
-	ErrorMessage   string `json:"error_msg,omitempty"`
-}
-
-type WordsResult struct {
-	InvoiceCode            *WordUnit `json:"InvoiceCode"`
-	InvoiceNum             *WordUnit `json:"InvoiceNum"`
-	InvoiceDate            *WordUnit `json:"InvoiceDate"`
-	PurchaserName          *WordUnit `json:"PurchaserName"`
-	PurchaserRegisterNum   *WordUnit `json:"PurchaserRegisterNum"`
-	PurchaserAddress       *WordUnit `json:"PurchaserAddress"`
-	PurchaserBank          *WordUnit `json:"PurchaserBank"`
-	SellerName             *WordUnit `json:"SellerName"`
-	SellerRegisterNum      *WordUnit `json:"SellerRegisterNum"`
-	SellerAddress          *WordUnit `json:"SellerAddress"`
-	SellerBank             *WordUnit `json:"SellerBank"`
-	TotalAmount            *WordUnit `json:"TotalAmount"`
-	TotalTax               *WordUnit `json:"TotalTax"`
-	TotalPrice             *WordUnit `json:"TotalPrice"`
-	TotalPriceWords        *WordUnit `json:"TotalPriceWords"`
-	CheckCode              *WordUnit `json:"CheckCode"`
-	Payee                  *WordUnit `json:"Payee"`
-	Checker                *WordUnit `json:"Checker"`
-	Note                   *WordUnit `json:"Note"`
-	Password               *WordUnit `json:"Password"`
-	SnBelongTo             *WordUnit `json:"SnBelongTo"`
-	Agent                  *WordUnit `json:"Agent"`
-	Province               *WordUnit `json:"Province"`
-	City                   *WordUnit `json:"City"`
-	SheetNum               *WordUnit `json:"SheetNum"`         // 所属联次
-	InvoiceType            *WordUnit `json:"InvoiceType"`      // 发票种类
-	InvoiceTypeOriginal    *WordUnit `json:"InvoiceTypeOriginal"`
-	OnlinePay              *WordUnit `json:"OnlinePay"`
-	ServiceName            *WordUnit `json:"ServiceName"`
-	ServiceType            *WordUnit `json:"ServiceType"`
-	CommodityPrice         *WordUnit `json:"CommodityPrice"`
-	CommodityTaxRate       *WordUnit `json:"CommodityTaxRate"`
-	DeductionCode          *WordUnit `json:"DeductionCode"`
+	LogID          int64                  `json:"log_id"`
+	WordsResultNum int                    `json:"words_result_num"`
+	WordsResult    map[string]WordUnit `json:"words_result"`
+	ErrorCode      int                    `json:"error_code,omitempty"`
+	ErrorMessage   string                 `json:"error_msg,omitempty"`
 }
 
 type WordUnit struct {
@@ -199,39 +163,41 @@ func (r *VatInvoiceResponse) ToMap() map[string]string {
 		return m
 	}
 
-	set := func(key string, unit *WordUnit) {
-		if unit != nil && unit.Word != "" {
-			m[key] = unit.Word
-		}
+	fieldMap := map[string]string{
+		"InvoiceCode":          "发票代码",
+		"InvoiceNum":           "发票号码",
+		"InvoiceDate":          "开票日期",
+		"PurchaserName":        "购买方名称",
+		"PurchaserRegisterNum": "购买方纳税人识别号",
+		"PurchaserAddress":     "购买方地址电话",
+		"PurchaserBank":        "购买方开户行账号",
+		"SellerName":           "销售方名称",
+		"SellerRegisterNum":    "销售方纳税人识别号",
+		"SellerAddress":        "销售方地址电话",
+		"SellerBank":           "销售方开户行账号",
+		"TotalAmount":          "合计金额",
+		"TotalTax":             "合计税额",
+		"TotalPrice":           "合计总额",
+		"TotalPriceWords":      "合计总额大写",
+		"CheckCode":            "校验码",
+		"Payee":                "收款人",
+		"Checker":              "复核人",
+		"Note":                 "备注",
+		"InvoiceType":          "发票种类",
+		"Province":             "省份",
+		"City":                 "城市",
+		"SheetNum":             "所属联次",
+		"Password":             "密码区",
+		"OnlinePay":            "在线支付",
+		"ServiceName":          "服务名称",
+		"ServiceType":          "服务类型",
 	}
 
-	set("发票代码", r.WordsResult.InvoiceCode)
-	set("发票号码", r.WordsResult.InvoiceNum)
-	set("开票日期", r.WordsResult.InvoiceDate)
-	set("购买方名称", r.WordsResult.PurchaserName)
-	set("购买方纳税人识别号", r.WordsResult.PurchaserRegisterNum)
-	set("购买方地址电话", r.WordsResult.PurchaserAddress)
-	set("购买方开户行账号", r.WordsResult.PurchaserBank)
-	set("销售方名称", r.WordsResult.SellerName)
-	set("销售方纳税人识别号", r.WordsResult.SellerRegisterNum)
-	set("销售方地址电话", r.WordsResult.SellerAddress)
-	set("销售方开户行账号", r.WordsResult.SellerBank)
-	set("合计金额", r.WordsResult.TotalAmount)
-	set("合计税额", r.WordsResult.TotalTax)
-	set("合计总额", r.WordsResult.TotalPrice)
-	set("合计总额大写", r.WordsResult.TotalPriceWords)
-	set("校验码", r.WordsResult.CheckCode)
-	set("收款人", r.WordsResult.Payee)
-	set("复核人", r.WordsResult.Checker)
-	set("备注", r.WordsResult.Note)
-	set("发票种类", r.WordsResult.InvoiceType)
-	set("省份", r.WordsResult.Province)
-	set("城市", r.WordsResult.City)
-	set("所属联次", r.WordsResult.SheetNum)
-	set("密码区", r.WordsResult.Password)
-	set("在线支付", r.WordsResult.OnlinePay)
-	set("服务名称", r.WordsResult.ServiceName)
-	set("服务类型", r.WordsResult.ServiceType)
+	for engKey, cnKey := range fieldMap {
+		if unit, ok := r.WordsResult[engKey]; ok && unit.Word != "" {
+			m[cnKey] = unit.Word
+		}
+	}
 
 	m["log_id"] = fmt.Sprintf("%d", r.LogID)
 	return m
